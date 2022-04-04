@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
+pragma solidity ^0.8.6;
 
 interface IUniswapV2Router {
 
@@ -12,4 +12,6 @@ interface IUniswapV2Router {
     external
     payable
     returns (uint[] memory amounts);
+
+    function WETH() external pure returns (address);
 }
