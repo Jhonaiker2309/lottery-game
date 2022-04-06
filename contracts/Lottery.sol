@@ -3,6 +3,7 @@ pragma solidity ^0.8.6;
 
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/token/ERC20/IERC20Upgradeable.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "hardhat/console.sol";
 import "./Interfaces/IUniswap.sol";
 import "./Interfaces/ISwap.sol";
@@ -75,6 +76,8 @@ contract Lottery is Initializable {
     // Interface to interat with chainlink random numbers
     IRandomNumber randomNumberCaller;
 
+    //IERC20Upgradeable _token;
+
     // Struct with the owner and interval of tickets sold
     struct IntervalOfTicketsSold{
         address owner;
@@ -118,8 +121,8 @@ contract Lottery is Initializable {
       require(block.timestamp >= startOfCurrentLottery + 2 days, "You have to wait 2 days after the start of the lottery");
       uint daiInContract = IERC20Upgradeable(dai).balanceOf(address(this));
       daiInContract = daiInContract - (amountOfSoldTicketsByLottery[currentLottery + 1] * 10 ** 18);
-      uint amountOfCDai = supplyErc20ToCompound(dai, cDai, daiInContract);
-      amountOfCdaiByLottery[currentLottery] = amountOfCDai;
+      supplyErc20ToCompound(dai, cDai, daiInContract);
+      amountOfCdaiByLottery[currentLottery] = getCTokenDaiBalance();
       timeWhenDaiWasSentToCompound = block.timestamp;
       tokensAreInCompound = true;
       tokenReceptionIsActive = false;
@@ -129,7 +132,7 @@ contract Lottery is Initializable {
     /// @notice Reveive Dai from Compound, give the dai to the buyers and get a winner
     /// @dev  get dai from compound, transfer to users, get a winner with chainlink random number, give him the prize and taka a fee for the owner
     function receiveDaiFromCompound() public onlyOwner {
-      require(tokensAreInCompound);
+      require(tokensAreInCompound, "Tokens are not in compound");
       require(block.timestamp >= timeWhenDaiWasSentToCompound + 5 days);
       
       redeemCErc20Tokens(amountOfCdaiByLottery[currentLottery], cDai);
@@ -157,6 +160,14 @@ contract Lottery is Initializable {
       IERC20Upgradeable(dai).transfer(addressOfWinner, prize);
 
       tokensAreInCompound = false;
+    }
+
+    function getNumberOfWinner(uint maxNumber) public returns (uint){
+        randomNumberCaller.getRandomNumber();
+
+        uint winner = randomNumberCaller.rollDice(maxNumber);
+
+        return winner;
     }
 
 
@@ -229,22 +240,23 @@ contract Lottery is Initializable {
         }
     }
 
-
     /// @notice Buy lottery tickets with stablecoins
     /// @param _tokenErc20 Addres of the erc20 tokens that we will use to pay
     /// @param _amount Amount of erc20 tokens that we will use to pay
     /// @dev  In case that the stablecoin is not Dai, swap the stablecoin for in using curve. After that buy tickets using Dai
 
-    function buyTicketsWithToken(address _tokenErc20, uint _amount) public {
-        IERC20Upgradeable _token;
-        _token = IERC20Upgradeable(_tokenErc20);
-        require(startOfCurrentLottery > 0, "None election has been started");
-        require(address(_token) == dai || address(_token) == usdt || address(_token) == usdc);
-        _token.transferFrom(msg.sender,address(this), _amount );
+    function buyTicketsWithTokens(address _tokenErc20, uint _amount) public {
+        require(startOfCurrentLottery > 0, "None lottery has been started");
+        IERC20Upgradeable _token =  IERC20Upgradeable(_tokenErc20);
+         
+        require(address(_token) == dai || address(_token) == usdt || address(_token) == usdc, "Token no valid");
+        
+        _token.transferFrom(msg.sender, address(this), _amount);
 
         if(!(address(_token) == dai)) {
            uint balanceOfToken = _token.balanceOf(address(this));
-           exchangesTokensOnCurve(0xC25a3A3b969415c80451098fa907EC722572917F, address(_token) ,dai, balanceOfToken,1, address(this));
+                      
+           exchangesTokensOnCurve(0xbEbc44782C7dB0a1A60Cb6fe97d0b483032FF1C7, address(_token) ,dai, balanceOfToken,1, address(this));
         } 
 
         uint amountOfDai = IERC20Upgradeable(dai).balanceOf(address(this));
@@ -301,24 +313,31 @@ contract Lottery is Initializable {
 
         // Mint cTokens
         uint mintResult = cToken.mint(_numTokensToSupply);
+        require(mintResult == 0, "F");
         return mintResult;
     }
 
+    function getCTokenDaiBalance() public view returns (uint) {
+        return CErc20(cDai).balanceOf(address(this));
+    }
 
     /// @notice Get Tokens from compound
     /// @param amount Amount of cErc20 tokens that we will exchange por Erc20 tokens from compound
     /// @param _cErc20Contract Id of the cErc20 token that we want to change for Erc20 tokens in Compound
     /// @dev  Change cErc20 tokens for Erc20 tokens in compound
+
+    // This function should be private, I made it public to test it
     function redeemCErc20Tokens(
         uint256 amount,
         address _cErc20Contract
-    ) private returns (bool) {
+    ) public returns (bool) {
         // Create a reference to the corresponding cToken contract, like cDAI
         CErc20 cToken = CErc20(_cErc20Contract);  
 
         uint256 redeemResult;
 
         redeemResult = cToken.redeem(amount);
+        require(redeemResult == 0, "F");
         return true;
     }
 

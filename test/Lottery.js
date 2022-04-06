@@ -1,24 +1,33 @@
 const { expect } = require("chai");
 const { ethers, upgrades } = require( "hardhat" );
 const { daiABI, usdtABI, usdcABI, linkABI } = require("../abis/abis.json");
-const {toWei} = require("./utils")
+const {toWei, fromWei, toDays, increaseTime, increaseBlocks} = require("./utils");
+
+// Testear comprar con erc20s
+// Testear comprar con Dai
+//Testear betas de compound
+// Testear que cuando este cerrado se compra el ticket de la siguiente lottery
+// Testear obtener ganador
+
+//No vas mal, avanzaste que jode en la noche
+
 
 describe("Market contract", function () {
 
     let etherscanAddressWithDai, etherscanAddressWithUsdt, etherscanAddressWithUsdc, etherscanAddressWithLink
-    let Lottery, lottery, RandomNumber, randomNumber, VRFCoordinator, vrfCoordinator
+    let Lottery, lottery, RandomNumber, randomNumber, Mock, mock
     let link, usdt, dai, usdc
     let owner, account1, account2, accountWithDai, accountWithUsdt, accountWithUsdc, accountWithLink;
 
     etherscanAddressWithDai = "0x1821Eb432E091Cce0f2Aa13BD64399A474D325d0";
-    etherscanAddressWithUsdt = "0xc852e1fdcCDeAfCCc9A3AC35e8944CfB573ACf7D";
+    etherscanAddressWithUsdt = "0x68B12741094702B016bcFd81d69E847d132E0618";
     etherscanAddressWithUsdc = "0x053A749Ec24CE3Eabe5F34aE1DCfB4952DCFD935";
     etherscanAddressWithLink = "0xa037D8b538096889a1a6908956147bd0f6D0C49c";
 
     beforeEach(async function () {
         Lottery = await ethers.getContractFactory("Lottery");
         RandomNumber = await ethers.getContractFactory("RandomNumber");
-        VRFCoordinator = await ethers.getContractFactory("VRFCoordinator");
+        Mock = await ethers.getContractFactory("Mock");
         [owner, account1, account2] = await ethers.getSigners();
     
         await hre.network.provider.request({
@@ -60,8 +69,8 @@ describe("Market contract", function () {
         lottery = await Lottery.deploy();
         await lottery.initialize(randomNumber.address)
 
-        vrfCoordinator = await VRFCoordinator.deploy(link.address)
-        await vrfCoordinator.deployed()
+        mock = await Mock.deploy(link.address)
+        await mock.deployed()
         
 });
 
@@ -95,9 +104,228 @@ describe("Market contract", function () {
             expect(stateOfTokenReceptionAfterFunction).to.be.equal(true)
         })
 
-        it("Test buy tickets with ether",  async function() {
+        it("Test buy tickets with a tiny amount of ether",  async function() {
+           await expect(lottery.connect(account1).buyTicketsWithEth({value: toWei(1)})).to.be.revertedWith("None lottery has been started");
+           await lottery.connect(owner).startLottery()
+           const amountOfDaiOfUserBeforeThatTheContractGivesHimHisExtraDai = await dai.connect(account1).balanceOf(account1.address)
+
+           await lottery.connect(account1).buyTicketsWithEth({value: toWei(0.0001)})
            
+           const currentLottery = await lottery.connect(owner).currentLottery()
+           const amountOfIntervalsInCurrentLottery = await lottery.amountOfIntervalsByLottery(currentLottery)
+           const amountOfSoldTicketsInCurrentLottery = await lottery.amountOfSoldTicketsByLottery(currentLottery)
+           const amountOfTicketsThatAccount1HasInCurrentLottery = await lottery.amountOfTicketsByUserInLottery(currentLottery, account1.address)
+
+           const amountOfDaiOfUserAfterThatTheContractGivesHimHisExtraDai = await dai.connect(account1).balanceOf(account1.address)
+
+           expect(currentLottery).to.be.equal(1)
+           expect(amountOfIntervalsInCurrentLottery).to.be.equal(0)
+           expect(amountOfSoldTicketsInCurrentLottery).to.be.equal(0)
+           expect(amountOfTicketsThatAccount1HasInCurrentLottery).to.be.equal(0)
+
+           expect(amountOfDaiOfUserAfterThatTheContractGivesHimHisExtraDai > amountOfDaiOfUserBeforeThatTheContractGivesHimHisExtraDai).to.be.equal(true)
         })
+
+        it("Test buy tickets with a normal amount of ether", async function(){
+
+           await expect(lottery.connect(account1).buyTicketsWithEth({value: toWei(1)})).to.be.revertedWith("None lottery has been started");
+           await lottery.connect(owner).startLottery()
+           const amountOfDaiOfUserBeforeThatTheContractGivesHimHisExtraDai = await dai.connect(account1).balanceOf(account1.address)
+
+           await lottery.connect(account1).buyTicketsWithEth({value: toWei(1.2)})
+           
+           const currentLottery = await lottery.connect(owner).currentLottery()
+           const amountOfIntervalsInCurrentLottery = await lottery.amountOfIntervalsByLottery(currentLottery)
+           const amountOfSoldTicketsInCurrentLottery = await lottery.amountOfSoldTicketsByLottery(currentLottery)
+           const amountOfTicketsThatAccount1HasInCurrentLottery = await lottery.amountOfTicketsByUserInLottery(currentLottery, account1.address)
+
+           const amountOfDaiOfUserAfterThatTheContractGivesHimHisExtraDai = await dai.connect(account1).balanceOf(account1.address)
+
+           expect(currentLottery).to.be.equal(1)
+           expect(amountOfIntervalsInCurrentLottery).to.be.equal(1)
+           expect(amountOfSoldTicketsInCurrentLottery > 1000).to.be.equal(true)
+           expect(amountOfTicketsThatAccount1HasInCurrentLottery > 1000).to.be.equal(true)
+           expect(amountOfTicketsThatAccount1HasInCurrentLottery).to.be.equal(amountOfSoldTicketsInCurrentLottery)
+
+           expect(amountOfDaiOfUserAfterThatTheContractGivesHimHisExtraDai > amountOfDaiOfUserBeforeThatTheContractGivesHimHisExtraDai).to.be.equal(true)  
+        })
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+        it("Test buy tickets with a tiny amount of a stablecoins different than Dai",  async function() {
+           await lottery.sendEth(accountWithUsdc.address , {value: toWei(10)})
+           await expect(lottery.connect(accountWithUsdc).buyTicketsWithTokens(usdc.address, 100000)).to.be.revertedWith("None lottery has been started");
+           await lottery.connect(owner).startLottery()
+           const amountOfDaiOfUserBeforeThatTheContractGivesHimHisExtraDai = await dai.connect(accountWithUsdc).balanceOf(accountWithUsdc.address)
+           await usdc.connect(accountWithUsdc).approve(lottery.address, 100000);
+
+           expect(await usdc.connect(accountWithUsdc).allowance(accountWithUsdc.address, lottery.address)).to.be.equal(100000);
+           
+           await lottery.connect(accountWithUsdc).buyTicketsWithTokens(usdc.address, 100000)
+           
+           const currentLottery = await lottery.connect(owner).currentLottery()
+           const amountOfIntervalsInCurrentLottery = await lottery.amountOfIntervalsByLottery(currentLottery)
+           const amountOfSoldTicketsInCurrentLottery = await lottery.amountOfSoldTicketsByLottery(currentLottery)
+           const amountOfTicketsThatAccountWithUsdcHasInCurrentLottery = await lottery.amountOfTicketsByUserInLottery(currentLottery, accountWithUsdc.address)
+
+           const amountOfDaiOfUserAfterThatTheContractGivesHimHisExtraDai = await dai.connect(accountWithUsdc).balanceOf(accountWithUsdc.address)
+
+           expect(currentLottery).to.be.equal(1)
+           expect(amountOfIntervalsInCurrentLottery).to.be.equal(0)
+           expect(amountOfSoldTicketsInCurrentLottery).to.be.equal(0)
+           expect(amountOfTicketsThatAccountWithUsdcHasInCurrentLottery).to.be.equal(0)
+
+           expect(amountOfDaiOfUserAfterThatTheContractGivesHimHisExtraDai > amountOfDaiOfUserBeforeThatTheContractGivesHimHisExtraDai).to.be.equal(true)
+        })
+
+        it("Test buy tickets with a normal amount of a stablecoins different than Dai",  async function() {
+           await lottery.sendEth(accountWithUsdc.address , {value: toWei(10)})
+           await expect(lottery.connect(accountWithUsdc).buyTicketsWithTokens(usdc.address, 1000000000)).to.be.revertedWith("None lottery has been started");
+           await lottery.connect(owner).startLottery()
+           const amountOfDaiOfUserBeforeThatTheContractGivesHimHisExtraDai = await dai.connect(accountWithUsdc).balanceOf(accountWithUsdc.address)
+           
+           await usdc.connect(accountWithUsdc).approve(lottery.address, 1000000000)
+
+           await lottery.connect(accountWithUsdc).buyTicketsWithTokens(usdc.address, 1000000000)
+           
+           const currentLottery = await lottery.connect(owner).currentLottery()
+           const amountOfIntervalsInCurrentLottery = await lottery.amountOfIntervalsByLottery(currentLottery)
+           const amountOfSoldTicketsInCurrentLottery = await lottery.amountOfSoldTicketsByLottery(currentLottery)
+           const amountOfTicketsThatAccountWithUsdcHasInCurrentLottery = await lottery.amountOfTicketsByUserInLottery(currentLottery, accountWithUsdc.address)
+
+           const amountOfDaiOfUserAfterThatTheContractGivesHimHisExtraDai = await dai.connect(accountWithUsdc).balanceOf(accountWithUsdc.address)
+
+           expect(currentLottery).to.be.equal(1)
+           expect(amountOfIntervalsInCurrentLottery).to.be.equal(1)
+
+           expect(amountOfSoldTicketsInCurrentLottery > 500).to.be.equal(true)
+           expect(amountOfTicketsThatAccountWithUsdcHasInCurrentLottery > 500).to.be.equal(true)
+       
+           expect(amountOfTicketsThatAccountWithUsdcHasInCurrentLottery).to.be.equal(amountOfSoldTicketsInCurrentLottery)
+
+           expect(fromWei(amountOfDaiOfUserAfterThatTheContractGivesHimHisExtraDai) > fromWei(amountOfDaiOfUserBeforeThatTheContractGivesHimHisExtraDai)).to.be.equal(true)
+        })
+
+        it("Test buy tickets with a tiny amount of Dai",  async function() {
+           await lottery.sendEth(accountWithDai.address , {value: toWei(10)})
+           await lottery.connect(owner).startLottery()
+           const amountOfDaiOfUserBeforeThatTheContractGivesHimHisExtraDai = await dai.connect(accountWithDai).balanceOf(accountWithDai.address)
+           await dai.connect(accountWithDai).approve(lottery.address, toWei(0.1));
+
+          expect(await dai.connect(accountWithDai).allowance(accountWithDai.address, lottery.address)).to.be.equal(toWei(0.1));
+
+          await lottery.connect(accountWithDai).buyTicketsWithTokens(dai.address, toWei(0.1));
+           
+           const currentLottery = await lottery.connect(owner).currentLottery()
+           const amountOfIntervalsInCurrentLottery = await lottery.amountOfIntervalsByLottery(currentLottery)
+           const amountOfSoldTicketsInCurrentLottery = await lottery.amountOfSoldTicketsByLottery(currentLottery)
+           const amountOfTicketsThatAccountWithDaiHasInCurrentLottery = await lottery.amountOfTicketsByUserInLottery(currentLottery, accountWithDai.address)
+
+           const amountOfDaiOfUserAfterThatTheContractGivesHimHisExtraDai = await dai.connect(accountWithDai).balanceOf(accountWithDai.address)
+
+           expect(currentLottery).to.be.equal(1)
+           expect(amountOfIntervalsInCurrentLottery).to.be.equal(0)
+           expect(amountOfSoldTicketsInCurrentLottery).to.be.equal(0)
+           expect(amountOfTicketsThatAccountWithDaiHasInCurrentLottery).to.be.equal(0)
+
+           expect(fromWei(amountOfDaiOfUserAfterThatTheContractGivesHimHisExtraDai)).to.be.equal(fromWei(amountOfDaiOfUserBeforeThatTheContractGivesHimHisExtraDai)) 
+        })
+
+        it("Test buy tickets with a normal amount of Dai",  async function() {
+           await lottery.sendEth(accountWithDai.address , {value: toWei(10)})
+           await lottery.connect(owner).startLottery()
+           const amountOfDaiOfUserBeforeThatTheContractGivesHimHisExtraDai = await dai.connect(accountWithDai).balanceOf(accountWithDai.address)
+           await dai.connect(accountWithDai).approve(lottery.address, toWei(1000));
+
+          expect(await dai.connect(accountWithDai).allowance(accountWithDai.address, lottery.address)).to.be.equal(toWei(1000));
+
+          await lottery.connect(accountWithDai).buyTicketsWithTokens(dai.address, toWei(1000));
+           
+           const currentLottery = await lottery.connect(owner).currentLottery()
+           const amountOfIntervalsInCurrentLottery = await lottery.amountOfIntervalsByLottery(currentLottery)
+           const amountOfSoldTicketsInCurrentLottery = await lottery.amountOfSoldTicketsByLottery(currentLottery)
+           const amountOfTicketsThatAccountWithDaiHasInCurrentLottery = await lottery.amountOfTicketsByUserInLottery(currentLottery, accountWithDai.address)
+
+           const amountOfDaiOfUserAfterThatTheContractGivesHimHisExtraDai = await dai.connect(accountWithDai).balanceOf(accountWithDai.address)
+
+           expect(currentLottery).to.be.equal(1)
+           expect(amountOfIntervalsInCurrentLottery).to.be.equal(1)
+           expect(amountOfSoldTicketsInCurrentLottery).to.be.equal(1000)
+           expect(amountOfTicketsThatAccountWithDaiHasInCurrentLottery).to.be.equal(1000)
+
+           expect(fromWei(amountOfDaiOfUserAfterThatTheContractGivesHimHisExtraDai) < fromWei(amountOfDaiOfUserBeforeThatTheContractGivesHimHisExtraDai)).to.be.equal(true) 
+        })
+
+        it("Check that contract sends dai to compound", async function(){
+            await lottery.startLottery()
+            await lottery.connect(owner).buyTicketsWithEth({value: toWei(10)})
+            await lottery.connect(account1).buyTicketsWithEth({ value: toWei(10) });
+            await increaseTime(toDays(3));
+            const amountOfDaiBeforeSendMoneyToCompound = await dai.connect(owner).balanceOf(lottery.address)
+
+            await lottery.connect(owner).sendDaiToCompound()
+     
+            const amountOfCdai = await lottery.connect(owner).getCTokenDaiBalance();
+
+            await increaseBlocks(10000);
+            await lottery.redeemCErc20Tokens(amountOfCdai,"0x5d3a536e4d6dbd6114cc1ead35777bab948e3643");
+
+            const amountOfDaiAfterSendMoneyToCompound = await dai.connect(owner).balanceOf(lottery.address);
+            
+            expect(amountOfDaiBeforeSendMoneyToCompound < amountOfDaiAfterSendMoneyToCompound).to.be.equal(true);
+            
+            
+            
+        })
+
+        /*it("Test random implementation", async function() {
+                        await lottery.connect(owner).sendEth(accountWithLink.address, {value : toWei(10)})
+            await link.connect(accountWithLink).transfer(randomNumber.address, toWei(1000))        
+            await randomNumber.connect(owner).getRandomNumber()
+
+            //const lastRequestId = await randomNumber.connect(owner).lastRequestId()
+
+            await mock.connect(owner).callBackWithRandomness(lastRequestId, 777, randomNumber.address)
+
+            let result = await lottery.connect(owner).getNumberOfWinner(10)
+
+            console.log(result)
+            /*await lottery.connect(owner).startLottery()
+            await lottery.connect(owner).sendEth(accountWithLink.address, {value : toWei(10)})
+            await link.connect(accountWithLink).transfer(randomNumber.address, toWei(1000))
+            const numberRandom = await lottery.connect(accountWithLink).getNumberOfWinner(30);
+            console.log(numberRandom) 
+        })*/
+
+        /*it("Test buy tickets with a normal amount of Dai",  async function() {
+           await expect(lottery.connect(accountWithUsdt).buyTicketsWithTokens(usdt.address, 100000000)).to.be.revertedWith("None lottery has been started");
+           await lottery.connect(owner).startLottery()
+           await lottery.connect(owner).sendEth(accountWithUsdt.address,{value: toWei(10)})
+           const amountOfDaiOfUserBeforeThatTheContractGivesHimHisExtraDai = await dai.connect(accountWithUsdt).balanceOf(accountWithUsdt.address)
+           
+           await usdt.connect(accountWithUsdt).approve(lottery.address, 1000000000)
+
+           await lottery.connect(accountWithUsdt).buyTicketsWithTokens(usdt.address, 100000000)
+           
+           const currentLottery = await lottery.connect(owner).currentLottery()
+           const amountOfIntervalsInCurrentLottery = await lottery.amountOfIntervalsByLottery(currentLottery)
+           const amountOfSoldTicketsInCurrentLottery = await lottery.amountOfSoldTicketsByLottery(currentLottery)
+           const amountOfTicketsThatAccountWithUsdtHasInCurrentLottery = await lottery.amountOfTicketsByUserInLottery(currentLottery, accountWithUsdt.address)
+
+           const amountOfDaiOfUserAfterThatTheContractGivesHimHisExtraDai = await dai.connect(accountWithUsdt).balanceOf(accountWithUsdt.address)
+
+           expect(currentLottery).to.be.equal(1)
+           expect(amountOfIntervalsInCurrentLottery).to.be.equal(1)
+           expect(amountOfSoldTicketsInCurrentLottery > 5).to.be.equal(true)
+           expect(amountOfTicketsThatAccountWithUsdtHasInCurrentLottery > 5).to.be.equal(true)
+       
+            expect(amountOfTicketsThatAccount1HasInCurrentLottery).to.be.equal(amountOfSoldTicketsInCurrentLottery)
+
+           expect(amountOfDaiOfUserAfterThatTheContractGivesHimHisExtraDai > amountOfDaiOfUserBeforeThatTheContractGivesHimHisExtraDai).to.be.equal(true)
+        })*/
 
 
 

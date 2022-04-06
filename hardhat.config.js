@@ -8,7 +8,7 @@ module.exports = {
 		hardhat: {
 			forking: {
 				url: process.env.ALCHEMY_KEY,
-				blockNumber: 14521921,
+				blockNumber: 14521925,
 			},
 			chainId: 31337,
 		},
@@ -29,7 +29,8 @@ module.exports = {
 	solidity: {
         compilers: [
           {version: "0.7.0"},
-          {version: "0.8.6"}
+          {version: "0.8.6"},
+          {version: "0.8.0"}
         ],
 		settings: {
 			optimizer: {
