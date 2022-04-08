@@ -3,15 +3,6 @@ const { ethers, upgrades } = require( "hardhat" );
 const { daiABI, usdtABI, usdcABI, linkABI } = require("../abis/abis.json");
 const {toWei, fromWei, toDays, increaseTime, increaseBlocks} = require("./utils");
 
-// Testear comprar con erc20s
-// Testear comprar con Dai
-//Testear betas de compound
-// Testear que cuando este cerrado se compra el ticket de la siguiente lottery
-// Testear obtener ganador
-
-//No vas mal, avanzaste que jode en la noche
-
-
 describe("Market contract", function () {
 
     let etherscanAddressWithDai, etherscanAddressWithUsdt, etherscanAddressWithUsdc, etherscanAddressWithLink
@@ -383,6 +374,31 @@ describe("Market contract", function () {
             expect(amountOfTicketsSoldInFirstLotteryBeforeCloseIt).to.be.equal(amountOfTicketsSoldInFirstLotteryAfterCloseIt)
             expect(fromWei(amountOfTicketsSoldInSecondLottery) > 0).to.be.equal(true)
         }) 
+
+        it("Test 2 lotteries", async function(){
+            await lottery.connect(owner).startLottery();
+
+			await link.connect(accountWithLink).transfer(randomNumber.address, toWei(100));
+            await lottery.connect(owner).sendEth(accountWithUsdc.address, {value: toWei(1)})
+            await lottery.connect(owner).sendEth(accountWithDai.address, { value: toWei(1) });
+
+            await usdc.connect(accountWithUsdc).approve(lottery.address, toWei(100));
+            await dai.connect(accountWithDai).approve(lottery.address, toWei(100));
+
+            await lottery.connect(accountWithUsdc).buyTicketsWithTokens(usdc.address, 10 ** 8);
+            await lottery.connect(accountWithDai).buyTicketsWithTokens(dai.address, toWei(12));
+            await lottery.connect(owner).buyTicketsWithEth({value: toWei(10)});
+            await lottery.connect(account1).buyTicketsWithEth({value: toWei(10)});
+            await lottery.connect(account2).buyTicketsWithEth({value: toWei(10)});
+
+
+            await lottery.connect(accountWithUsdc).buyTicketsWithTokens(usdc.address, 10 ** 8);
+			await lottery.connect(accountWithDai).buyTicketsWithTokens(dai.address, toWei(12));
+			await lottery.connect(owner).buyTicketsWithEth({ value: toWei(18) });
+			await lottery.connect(account1).buyTicketsWithEth({ value: toWei(18) });
+			await lottery.connect(account2).buyTicketsWithEth({ value: toWei(18) });
+            
+        })
 
         
 
