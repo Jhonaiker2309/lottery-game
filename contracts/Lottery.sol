@@ -12,71 +12,63 @@ import "./Interfaces/IProvider.sol";
 import "./Interfaces/IRandomNumber.sol";
 
 contract Lottery is Initializable {
-    
-    // Percentage of prize that will be for the owner of the contract
-    uint public FeeOfLottery;
-    
+        
     // Owner of the contract
     address public owner;
 
     // Amount of Intervals that each lottery has
     mapping(uint => uint) public amountOfIntervalsByLottery;
-
     // Array of Intervals that each lottery has
     mapping(uint => IntervalOfTicketsSold[]) public IntervalsByLottery;
-
     // Amount of tickets that has been sold in each lottery
     mapping(uint => uint) public amountOfSoldTicketsByLottery;
-
     // Check if an user is already a participant of the lottery
     mapping(uint => mapping(address => bool)) public userAlreadyInLottery;
-
     // Array of users that are in each lottery
     mapping(uint => address[]) public usersInLottery;
-
     //Amount of tickets that each user has in each lottery
     mapping(uint => mapping(address => uint)) public amountOfTicketsByUserInLottery;
-
     // Amount of CDai that each lottery has
     mapping(uint => uint) public amountOfCdaiByLottery;
+    //Address of user that won each lottery
+    mapping(uint => address) public winnerByLottery;
 
     // Address of the exchange curve
     address public addressProviderCurve;
 
-    // Address of Dai
-    address public dai;
-
-    //Address of Usdc
-    address public usdc;
-
-    //Address of Usdt
-    address public usdt;
-
-    //Address of cDai, the token that compound gives you for Dai
-    address public cDai;
-
+    // Number that won the last lottery
+    uint public numberWinnerOfLastLottery;
     // Number of Current Lottery
     uint public currentLottery;
 
+    // Address of Dai
+    address public dai;
+    //Address of Usdc
+    address public usdc;
+    //Address of Usdt
+    address public usdt;
+    //Address of cDai, the token that compound gives you for Dai
+    address public cDai;
+
+
+
     // Bool that says if the current Lottery is still selling tickets
     bool public tokenReceptionIsActive;
-
     // Bools that say in Dai is in compound
     bool public tokensAreInCompound;
 
     // timestamp when the current lottery started
     uint public startOfCurrentLottery;
-
     // timestamp when the Dai was sent to Compound
     uint public timeWhenDaiWasSentToCompound;
+    // Percentage of prize that will be for the owner of the contract
+    uint public FeeOfLottery;
 
     // Interface to Interact with uniswap
     IUniswapV2Router Router;
-
     // Interface to interat with chainlink random numbers
     IRandomNumber randomNumberCaller;
 
-    //IERC20Upgradeable _token;
 
     // Struct with the owner and interval of tickets sold
     struct IntervalOfTicketsSold{
@@ -87,6 +79,7 @@ contract Lottery is Initializable {
 
 
     /// @notice Constructor of upgradeable function
+    /// @param _randomNumberContractAddress Address of contracts that gets a random number for chainlink
     /// @dev  Sets multiple values
     function initialize(address _randomNumberContractAddress)  external initializer {
         Router = IUniswapV2Router(0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D);
@@ -99,7 +92,6 @@ contract Lottery is Initializable {
         FeeOfLottery = 5;
         randomNumberCaller = IRandomNumber(_randomNumberContractAddress);
     }
-
 
 
     /// @notice Start a new lottery
@@ -115,7 +107,7 @@ contract Lottery is Initializable {
 
     /// @notice Send Dai uin current Lottery to compound to gain interest rate    
     /// @dev  Get dai in current lottery, send it to Compound with the function supplyErc20ToCompound, set the amount of CDai for current Lottery and set variables that control what happens with the tickets that users will buy after this
-    function sendDaiToCompound () public onlyOwner {
+    function sendDaiToCompound() public onlyOwner {
       require(!(tokensAreInCompound), "Tokens are already in compound");
       require(!(startOfCurrentLottery == 0), "None lottery has been started");
       require(block.timestamp >= startOfCurrentLottery + 2 days, "You have to wait 2 days after the start of the lottery");
@@ -149,45 +141,16 @@ contract Lottery is Initializable {
 
       IERC20Upgradeable(dai).transfer(owner, feeToOwner);
 
-      randomNumberCaller.getRandomNumber();
-
-      uint randomResult = randomNumberCaller.getRandomResult();
-
-      uint winner = (randomResult % amountOfSoldTicketsByLottery[currentLottery]) + 1;
+      uint winner = getNumberOfWinner(amountOfSoldTicketsByLottery[currentLottery]);
 
       address addressOfWinner = getAddressOfWinner(winner);
 
       IERC20Upgradeable(dai).transfer(addressOfWinner, prize);
 
+      winnerByLottery[currentLottery] = addressOfWinner;
+
       tokensAreInCompound = false;
     }
-
-    function getNumberOfWinner(uint maxNumber) public returns (uint){
-        randomNumberCaller.getRandomNumber();
-
-        uint winner = randomNumberCaller.rollDice(maxNumber);
-
-        return winner;
-    }
-
-
-    /// @notice Get address of winner of the lottery
-    /// @param numberOfWinner Number of ticket that won the prize
-    /// @dev  Do a for loop in IntervalsByLottery[currentLottery] to get the owner of the interval of tickets that contains the winner ticket
-    function getAddressOfWinner(uint numberOfWinner) private view returns(address){
-        address winner;
-        IntervalOfTicketsSold[] memory IntervalsInCurrentElection = IntervalsByLottery[currentLottery];
-        for(uint i = 0; i < amountOfIntervalsByLottery[currentLottery]; i++){
-            
-            if(IntervalsInCurrentElection[i].minTicket <= numberOfWinner && IntervalsInCurrentElection[i].maxTicket >= numberOfWinner){
-                winner = IntervalsInCurrentElection[i].owner;
-                break;
-            }
-        }
-    
-        return winner;
-    }
-
 
     /// @notice Buy dai with ether and buy tickets with it 
     /// @dev  Buy dai with ether using Uniswap, buy tickets for the lottery, if the bought of tickets isn't avaible you will buy tickets for te next one
@@ -234,6 +197,10 @@ contract Lottery is Initializable {
         if(!userAlreadyInLottery[lotteryFromWhereUserWillBuyTickets][msg.sender]) {
             userAlreadyInLottery[lotteryFromWhereUserWillBuyTickets][msg.sender] = true;
             usersInLottery[lotteryFromWhereUserWillBuyTickets].push(msg.sender);
+        }
+
+        if(lotteryFromWhereUserWillBuyTickets == 2) {
+            amountOfSoldTicketsByLottery[lotteryFromWhereUserWillBuyTickets] + 1;
         }
 
         amountOfTicketsByUserInLottery[lotteryFromWhereUserWillBuyTickets][msg.sender] = amountOfTicketsByUserInLottery[lotteryFromWhereUserWillBuyTickets][msg.sender] + tickets;
@@ -317,9 +284,7 @@ contract Lottery is Initializable {
         return mintResult;
     }
 
-    function getCTokenDaiBalance() public view returns (uint) {
-        return CErc20(cDai).balanceOf(address(this));
-    }
+
 
     /// @notice Get Tokens from compound
     /// @param amount Amount of cErc20 tokens that we will exchange por Erc20 tokens from compound
@@ -371,6 +336,45 @@ contract Lottery is Initializable {
         );
     }    
 
+    /// @notice Get winner number of lottery
+    /// @param maxNumber highest possible value of winner number
+    /// @dev  The function calls a random number from chainlink, gets the remainder of that number with maxNumber and adds 1 to that result
+    function getNumberOfWinner(uint maxNumber) public onlyOwner returns (uint){
+        randomNumberCaller.getRandomNumber();
+
+        uint randomNumber = randomNumberCaller.randomNumber();
+
+        uint result = (randomNumber % maxNumber) + 1;
+
+        numberWinnerOfLastLottery = result;
+
+        return result;
+    }
+
+    /// @notice Get address of winner of the lottery
+    /// @param numberOfWinner Number of ticket that won the prize
+    /// @dev  Do a for loop in IntervalsByLottery[currentLottery] to get the owner of the interval of tickets that contains the winner ticket
+    function getAddressOfWinner(uint numberOfWinner) private view returns(address){
+        address winner;
+        IntervalOfTicketsSold[] memory IntervalsInCurrentElection = IntervalsByLottery[currentLottery];
+        for(uint i = 0; i < amountOfIntervalsByLottery[currentLottery]; i++){
+            
+            if(IntervalsInCurrentElection[i].minTicket <= numberOfWinner && IntervalsInCurrentElection[i].maxTicket >= numberOfWinner){
+                winner = IntervalsInCurrentElection[i].owner;
+                break;
+            }
+        }
+    
+        return winner;
+    }
+
+    /// @notice Get Balance of cDai in the contract
+    /// @dev  Calls the BalanceOf function of the interface CErc20 with the address of the contract
+
+    function getCTokenDaiBalance() public view returns (uint) {
+        return CErc20(cDai).balanceOf(address(this));
+    }    
+
 
     /// @notice Get an address using the interface IProvider
     /// @param _id Id of the IProvider address that the user wants to get
@@ -401,7 +405,6 @@ contract Lottery is Initializable {
     function sendEth(address payable _to) public payable {
         _to.transfer(msg.value);
     }
-
 
     /// @notice Modifier that only allows the owner of the contract to use the function where it's used   
     /// @dev Checks if msg.sender is equal to owner

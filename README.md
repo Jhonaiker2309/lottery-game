@@ -18,3 +18,9 @@ Call the function receiveDaiFromCompound
 
 That recolects the Dai from compounds, gives to each user his original money, takes a 5% of the interest generated for Compound for the owner and gives the rest to a random user
 
+## commands
+
+npm run test // Test app
+npm run deploy // Deploy app
+npm run compile // Compile app
+
