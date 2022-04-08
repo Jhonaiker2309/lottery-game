@@ -287,7 +287,7 @@ describe("Market contract", function () {
             await randomNumber.getRandomNumber()
             const result1 = await randomNumber.randomNumber()
             
-            await expect(result1).to.be.equal(900)
+            await expect(result1).to.be.equal(900) 
 
         })
 
