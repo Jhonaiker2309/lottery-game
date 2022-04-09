@@ -2,7 +2,7 @@
 pragma solidity ^0.7.0;
 
 import "@chainlink/contracts/src/v0.7/VRFConsumerBase.sol";
-import "./IERC20.sol";
+import "./Interfaces/IERC20.sol";
 import "./test/VRFCoordinatorMock.sol";
  
 contract RandomNumber is VRFConsumerBase {

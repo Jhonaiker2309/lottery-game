@@ -108,6 +108,7 @@ contract Lottery is Initializable {
     /// @notice Send Dai uin current Lottery to compound to gain interest rate    
     /// @dev  Get dai in current lottery, send it to Compound with the function supplyErc20ToCompound, set the amount of CDai for current Lottery and set variables that control what happens with the tickets that users will buy after this
     function sendDaiToCompound() public onlyOwner {
+      require(amountOfSoldTicketsByLottery[currentLottery] > 0, "The lottery hasn't sold tickets");
       require(!(tokensAreInCompound), "Tokens are already in compound");
       require(!(startOfCurrentLottery == 0), "None lottery has been started");
       require(block.timestamp >= startOfCurrentLottery + 2 days, "You have to wait 2 days after the start of the lottery");
@@ -123,18 +124,18 @@ contract Lottery is Initializable {
 
     /// @notice Reveive Dai from Compound, give the dai to the buyers and get a winner
     /// @dev  get dai from compound, transfer to users, get a winner with chainlink random number, give him the prize and taka a fee for the owner
-    function receiveDaiFromCompound() public onlyOwner {
+        function receiveDaiFromCompound() public onlyOwner {
       require(tokensAreInCompound, "Tokens are not in compound");
-      require(block.timestamp >= timeWhenDaiWasSentToCompound + 5 days);
+      require(block.timestamp >= timeWhenDaiWasSentToCompound + 5 days, "You have to wait 5 days to receive tokens from compound");
       
       redeemCErc20Tokens(amountOfCdaiByLottery[currentLottery], cDai);
       address[] memory usersInCurrentLotery = usersInLottery[currentLottery];
 
       for(uint i = 0; i < usersInCurrentLotery.length; i++) {
-      IERC20Upgradeable(dai).transfer(usersInCurrentLotery[i], amountOfTicketsByUserInLottery[currentLottery][usersInCurrentLotery[i]]);
+      IERC20Upgradeable(dai).transfer(usersInCurrentLotery[i], amountOfTicketsByUserInLottery[currentLottery][usersInCurrentLotery[i]] * (10 ** 18));
       }
 
-      uint prize = IERC20Upgradeable(dai).balanceOf(address(this)) - (amountOfSoldTicketsByLottery[currentLottery + 1] * (10 ** 18));
+      uint prize = IERC20Upgradeable(dai).balanceOf(address(this)) - (amountOfSoldTicketsByLottery[currentLottery + 1] * (10 **18)); //- (amountOfSoldTicketsByLottery[currentLottery + 1] * (10 ** 18));
 
       uint feeToOwner = (prize * FeeOfLottery) / 100;
       prize = prize - feeToOwner;
@@ -157,9 +158,10 @@ contract Lottery is Initializable {
     function buyTicketsWithEth() public payable {
         require(startOfCurrentLottery > 0, "None lottery has been started");
             address[] memory path = getPathOfEtherAndToken(dai);       
-            Router.swapExactETHForTokens{value: msg.value}(1, path, address(this), block.timestamp);
+            uint[] memory results;
+            results = Router.swapExactETHForTokens{value: msg.value}(1, path, address(this), block.timestamp);
 
-        uint amountOfDai = IERC20Upgradeable(dai).balanceOf(address(this));
+        uint amountOfDai = results[1];
 
         if(amountOfDai < 10 ** 18) {
             IERC20Upgradeable(dai).transfer(msg.sender, amountOfDai);
@@ -199,10 +201,6 @@ contract Lottery is Initializable {
             usersInLottery[lotteryFromWhereUserWillBuyTickets].push(msg.sender);
         }
 
-        if(lotteryFromWhereUserWillBuyTickets == 2) {
-            amountOfSoldTicketsByLottery[lotteryFromWhereUserWillBuyTickets] + 1;
-        }
-
         amountOfTicketsByUserInLottery[lotteryFromWhereUserWillBuyTickets][msg.sender] = amountOfTicketsByUserInLottery[lotteryFromWhereUserWillBuyTickets][msg.sender] + tickets;
         }
     }
@@ -215,6 +213,7 @@ contract Lottery is Initializable {
     function buyTicketsWithTokens(address _tokenErc20, uint _amount) public {
         require(startOfCurrentLottery > 0, "None lottery has been started");
         IERC20Upgradeable _token =  IERC20Upgradeable(_tokenErc20);
+        uint amountOfDai = _amount;
          
         require(address(_token) == dai || address(_token) == usdt || address(_token) == usdc, "Token no valid");
         
@@ -223,10 +222,8 @@ contract Lottery is Initializable {
         if(!(address(_token) == dai)) {
            uint balanceOfToken = _token.balanceOf(address(this));
                       
-           exchangesTokensOnCurve(0xbEbc44782C7dB0a1A60Cb6fe97d0b483032FF1C7, address(_token) ,dai, balanceOfToken,1, address(this));
+           amountOfDai = exchangesTokensOnCurve(0xbEbc44782C7dB0a1A60Cb6fe97d0b483032FF1C7, address(_token) ,dai, balanceOfToken,1, address(this));
         } 
-
-        uint amountOfDai = IERC20Upgradeable(dai).balanceOf(address(this));
 
         if(amountOfDai < 10 ** 18) {
             IERC20Upgradeable(dai).transfer(msg.sender, amountOfDai);
@@ -241,22 +238,31 @@ contract Lottery is Initializable {
 
         uint tickets = amountOfDai / 10 ** 18;
         uint initialTicket;
+
+        uint lotteryFromWhereUserWillBuyTickets;
+
+        if(tokenReceptionIsActive) {
+            lotteryFromWhereUserWillBuyTickets = currentLottery;
+        } else {
+            lotteryFromWhereUserWillBuyTickets = currentLottery + 1;
+        }
+
         if(amountOfSoldTicketsByLottery[currentLottery] == 0){
             initialTicket = 1;
         } else {
             initialTicket = amountOfSoldTicketsByLottery[currentLottery] + 1;
         }
 
-        IntervalsByLottery[currentLottery].push(IntervalOfTicketsSold(msg.sender, initialTicket, initialTicket + tickets -1));
-        amountOfIntervalsByLottery[currentLottery] = amountOfIntervalsByLottery[currentLottery] + 1;
-        amountOfSoldTicketsByLottery[currentLottery] = amountOfSoldTicketsByLottery[currentLottery] + tickets;
+        IntervalsByLottery[lotteryFromWhereUserWillBuyTickets].push(IntervalOfTicketsSold(msg.sender, initialTicket, initialTicket + tickets -1));
+        amountOfIntervalsByLottery[lotteryFromWhereUserWillBuyTickets] = amountOfIntervalsByLottery[lotteryFromWhereUserWillBuyTickets] + 1;
+        amountOfSoldTicketsByLottery[lotteryFromWhereUserWillBuyTickets] = amountOfSoldTicketsByLottery[lotteryFromWhereUserWillBuyTickets] + tickets;
 
-        if(!userAlreadyInLottery[currentLottery][msg.sender]) {
-            userAlreadyInLottery[currentLottery][msg.sender] = true;
-            usersInLottery[currentLottery].push(msg.sender);
+        if(!userAlreadyInLottery[lotteryFromWhereUserWillBuyTickets][msg.sender]) {
+            userAlreadyInLottery[lotteryFromWhereUserWillBuyTickets][msg.sender] = true;
+            usersInLottery[lotteryFromWhereUserWillBuyTickets].push(msg.sender);
         }
 
-        amountOfTicketsByUserInLottery[currentLottery][msg.sender] = amountOfTicketsByUserInLottery[currentLottery][msg.sender] + tickets;
+        amountOfTicketsByUserInLottery[lotteryFromWhereUserWillBuyTickets][msg.sender] = amountOfTicketsByUserInLottery[lotteryFromWhereUserWillBuyTickets][msg.sender] + tickets;
         }
     }
 
@@ -280,7 +286,7 @@ contract Lottery is Initializable {
 
         // Mint cTokens
         uint mintResult = cToken.mint(_numTokensToSupply);
-        require(mintResult == 0, "F");
+        require(mintResult == 0, "Mint results must be 0");
         return mintResult;
     }
 
@@ -302,7 +308,7 @@ contract Lottery is Initializable {
         uint256 redeemResult;
 
         redeemResult = cToken.redeem(amount);
-        require(redeemResult == 0, "F");
+        require(redeemResult == 0, "redeemResult must be 0");
         return true;
     }
 
@@ -322,11 +328,11 @@ contract Lottery is Initializable {
         uint256 _amount,
         uint256 _expected,
         address _receiver
-    ) internal {
+    ) internal returns(uint){
         address exchangeContract = returnsExchangeAddress(2);
         IERC20Upgradeable(_from).approve(exchangeContract, _amount);
 
-        ISwap(exchangeContract).exchange(
+        return ISwap(exchangeContract).exchange(
             _pool,
             _from,
             _to,

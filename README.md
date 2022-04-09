@@ -2,7 +2,6 @@
 
 This project is a lottery where the participants get their money back. The smart contract converts the eth or stablecoins of the users in Dai and sends the dai to Compound Finance to gain an interest rate
 
-##### Currently the randomFunction doesn't work, it should work with the implementation of one
 
 The owner should do this:
 
